@@ -2,7 +2,7 @@
 
 ## oracle.ssp.class.php
 
-Petite adaptation pour ma base oracle afin d'effectuer du serverSide Processing avec DataTables.
+Petite adaptation pour ma base oracle afin d'effectuer du serverSide Processing avec DataTables : PDO driver oci, requête pour simuler le LIMIT, ajout d'un NLS_DATE_FORMAT.
 
 Originale pour MySQL :
 
