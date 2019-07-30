@@ -79,15 +79,17 @@ class SSP {
 	 *  @param  array $columns Column information array
 	 *  @return string SQL limit clause
 	 */
-	static function limit ( $request, $columns )
+	static function limit ( $request, $sql )
 	{
-		$limit = '';
-
 		if ( isset($request['start']) && $request['length'] != -1 ) {
-			$limit = "WHERE r between ".intval($request['start'])." and ".(intval($request['start']) + intval($request['length']));
+			// "WHERE r between ".intval($request['start'])." and ".(intval($request['start']) + intval($request['length']));
+			$sql =  "SELECT * FROM ( SELECT a.*, ROWNUM rnum FROM ( ".
+							$sql.
+							" ) a WHERE ROWNUM <= ".(intval($request['start']) + intval($request['length']))." ) WHERE rnum >= ".intval($request['start'])
+							;
 		}
 
-		return $limit;
+		return $sql;
 	}
 
 
@@ -126,7 +128,7 @@ class SSP {
 			}
 
 			if ( count( $orderBy ) ) {
-				$order = 'ORDER BY '.implode(', ', $orderBy);
+				$order = " ORDER BY " . implode(', ', $orderBy);
 			}
 		}
 
@@ -228,22 +230,41 @@ class SSP {
 		$db = self::db( $conn );
 
 		// Build the SQL query string from the request
-		$limit = self::limit( $request, $columns );
 		$order = self::order( $request, $columns );
 		$where = self::filter( $request, $columns, $bindings );
-
+		
+		/*
+		$sql = "SELECT * FROM (SELECT ".
+		implode(", ", self::pluck($columns, 'db')).
+		", row_number() over (ORDER BY ".$order.") r ".
+		"FROM $table t ". 
+		$where.
+		") " .
+		$limit
+		;
+		SELECT * FROM 
+ 		(
+			SELECT a.*, ROWNUM rnum FROM 
+ 			(
+				SELECT * FROM top100_stats_trt WHERE vtenvname = 'EDI' and vtbegin > TO_DATE('01/07/2019', 'DD/MM/YY') and vtbegin < TO_DATE('10/07/2019', 'DD/MM/YY')  ORDER BY vtbegin DESC
+			) a
+			WHERE ROWNUM <= 10
+		)
+		WHERE rnum >= 0;
+		*/
+		
+		$sql = "SELECT ".
+		implode(", ", self::pluck($columns, 'db')).
+		" FROM $table t ". $where . $order
+		;
+		$sql = self::limit( $request, $sql );
 		// Main query to actually get the data
-		$data = self::sql_exec( $db, $bindings,
-			"SELECT * FROM (SELECT ".implode(", ", self::pluck($columns, 'db')).", row_number() over (".$order.") r
-			 FROM $table t
-			 $where
-			 )
-			 $limit"
-		);
+		$data = self::sql_exec( $db, $bindings, $sql);
+		
 
 		// Data set length after filtering
 		$resFilterLength = self::sql_exec( $db, $bindings,
-			"SELECT COUNT({$primaryKey})
+			"SELECT COUNT(1)
 			 FROM   $table
 			 $where"
 		);
@@ -251,7 +272,7 @@ class SSP {
 
 		// Total data set length
 		$resTotalLength = self::sql_exec( $db,
-			"SELECT COUNT({$primaryKey})
+			"SELECT COUNT(1)
 			 FROM   $table"
 		);
 		$recordsTotal = $resTotalLength[0][0];
@@ -265,101 +286,11 @@ class SSP {
 				0,
 			"recordsTotal"    => intval( $recordsTotal ),
 			"recordsFiltered" => intval( $recordsFiltered ),
+			"sql" => $sql,
 			"data"            => self::data_output( $columns, $data )
 		);
 	}
 
-
-	/**
-	 * The difference between this method and the simple one, is that you can
-	 * apply additional where conditions to the SQL queries. These can be in
-	 * one of two forms:
-	 *
-	 * * 'Result condition' - This is applied to the result set, but not the
-	 *   overall paging information query - i.e. it will not effect the number
-	 *   of records that a user sees they can have access to. This should be
-	 *   used when you want apply a filtering condition that the user has sent.
-	 * * 'All condition' - This is applied to all queries that are made and
-	 *   reduces the number of records that the user can access. This should be
-	 *   used in conditions where you don't want the user to ever have access to
-	 *   particular records (for example, restricting by a login id).
-	 *
-	 *  @param  array $request Data sent to server by DataTables
-	 *  @param  array|PDO $conn PDO connection resource or connection parameters array
-	 *  @param  string $table SQL table to query
-	 *  @param  string $primaryKey Primary key of the table
-	 *  @param  array $columns Column information array
-	 *  @param  string $whereResult WHERE condition to apply to the result set
-	 *  @param  string $whereAll WHERE condition to apply to all queries
-	 *  @return array          Server-side processing response array
-	 */
-	static function complex ( $request, $conn, $table, $primaryKey, $columns, $whereResult=null, $whereAll=null )
-	{
-		$bindings = array();
-		$db = self::db( $conn );
-		$localWhereResult = array();
-		$localWhereAll = array();
-		$whereAllSql = '';
-
-		// Build the SQL query string from the request
-		$limit = self::limit( $request, $columns );
-		$order = self::order( $request, $columns );
-		$where = self::filter( $request, $columns, $bindings );
-
-		$whereResult = self::_flatten( $whereResult );
-		$whereAll = self::_flatten( $whereAll );
-
-		if ( $whereResult ) {
-			$where = $where ?
-				$where .' AND '.$whereResult :
-				'WHERE '.$whereResult;
-		}
-
-		if ( $whereAll ) {
-			$where = $where ?
-				$where .' AND '.$whereAll :
-				'WHERE '.$whereAll;
-
-			$whereAllSql = 'WHERE '.$whereAll;
-		}
-
-		// Main query to actually get the data
-		$data = self::sql_exec( $db, $bindings,
-			"SELECT ".implode(", ", self::pluck($columns, 'db'))."
-			 FROM $table
-			 $where
-			 $order
-			 $limit"
-		);
-
-		// Data set length after filtering
-		$resFilterLength = self::sql_exec( $db, $bindings,
-			"SELECT COUNT({$primaryKey})
-			 FROM   $table
-			 $where"
-		);
-		$recordsFiltered = $resFilterLength[0][0];
-
-		// Total data set length
-		$resTotalLength = self::sql_exec( $db, $bindings,
-			"SELECT COUNT({$primaryKey})
-			 FROM   $table ".
-			$whereAllSql
-		);
-		$recordsTotal = $resTotalLength[0][0];
-
-		/*
-		 * Output
-		 */
-		return array(
-			"draw"            => isset ( $request['draw'] ) ?
-				intval( $request['draw'] ) :
-				0,
-			"recordsTotal"    => intval( $recordsTotal ),
-			"recordsFiltered" => intval( $recordsFiltered ),
-			"data"            => self::data_output( $columns, $data )
-		);
-	}
 
 
 	/**
@@ -383,6 +314,7 @@ class SSP {
 				array( PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION )
 			);
 			$db->query("ALTER SESSION SET NLS_DATE_FORMAT = 'DD-MM-YYYY HH24:MI:SS'");
+			$db->query("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'DD-MM-YYYY HH24:MI:SS'");
 		}
 		catch (PDOException $e) {
 			self::fatal(
