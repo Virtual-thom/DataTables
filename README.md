@@ -1,453 +1,219 @@
+# exemple d'utilisation DataTable Server-Side Processing php / Oracle
+
+`index.php`
+```php
 <?php
-/*
- * Helper functions for building a DataTables server-side processing SQL query
- *
- * The static functions in this class are just helper functions to help build
- * the SQL used in the DataTables demo server-side processing scripts. These
- * functions obviously do not represent all that can be done with server-side
- * processing, they are intentionally simple to show how it works. More complex
- * server-side processing operations will likely require a custom script.
- *
- * See http://datatables.net/usage/server-side for full details on the server-
- * side processing requirements of DataTables.
- *
- * @license MIT - http://datatables.net/license_mit
- */
-class SSP {
-	/**
-	 * Create the data output array for the DataTables rows
-	 *
-	 *  @param  array $columns Column information array
-	 *  @param  array $data    Data from the SQL get
-	 *  @return array          Formatted data in a row based format
-	 */
-	static function data_output ( $columns, $data )
-	{
-		$out = array();
-
-		for ( $i=0, $ien=count($data) ; $i<$ien ; $i++ ) {
-			$row = array();
-
-			for ( $j=0, $jen=count($columns) ; $j<$jen ; $j++ ) {
-				$column = $columns[$j];
-
-				$formatter = function($v){return $v ;} ;
-				// Is there a formatter? ex 'formatter' => 'function($v){$status[3] = "OK" ; $status[4] = "ERR" ; return $status[$v];}'
-				if ( isset( $column['formatter'] ) ) {
-					eval("\$formatter = ". $column['formatter'] . ";") ;
-					
-				}
-				$row[ $column['dt'] ] = $formatter( $data[$i][ $column['db'] ]);
-			}
-
-			$out[] = $row;
-		}
-
-		return $out;
-	}
+// DB table to use
+$table = 'TOP100_STATS_TRT';
+// Table's primary key
+$primaryKey = 'VTENVNAME';
 
 
-	/**
-	 * Database connection
-	 *
-	 * Obtain an PHP PDO connection from a connection details array
-	 *
-	 *  @param  array $conn SQL connection details. The array should have
-	 *    the following properties
-	 *     * host - host name
-	 *     * db   - database name
-	 *     * user - user name
-	 *     * pass - user password
-	 *  @return resource PDO connection
-	 */
-	static function db ( $conn )
-	{
-		if ( is_array( $conn ) ) {
-			return self::sql_connect( $conn );
-		}
+$columns = array(
+	array( 'db' => 'VTENVNAME',       'dt' => 0  , "priority" => 1   ),
+	array( 'db' => 'VTAPPLNAME',      'dt' => 1  , "priority" => 2   ),
+	array( 'db' => 'VTJOBNAME',       'dt' => 2  , "priority" => 3   ),
+	array( 'db' => 'VTSTATUS',        'dt' => 3  , "priority" => 4   , 'formatter' => 'function($v){$status[3] = "OK" ; $status[4] = "ERR" ; return $status[$v];}' ), 
+	array( 'db' => 'VTBEGIN',         'dt' => 4  , "priority" => 255 ),
+	array( 'db' => 'VTEND',           'dt' => 5  , "priority" => 5   ),
+	array( 'db' => 'VTERRMESS',       'dt' => 6  , "priority" => 255 ),
+	array( 'db' => 'VTEXPDATEVALUE',  'dt' => 7  , "priority" => 255 ),
+	array( 'db' => 'VTDOMAINE',       'dt' => 8  , "priority" => 5   ),
+	array( 'db' => 'VTFAMILY',        'dt' => 9  , "priority" => 255 ),
+	array( 'db' => 'VTMACHINE',       'dt' => 10 , "priority" => 255 ),
+	array( 'db' => 'VTQUEUE',         'dt' => 11 , "priority" => 255 ),
+	array( 'db' => 'VTUSER',          'dt' => 12 , "priority" => 255 ),
+	array( 'db' => 'VTCOMMENT',       'dt' => 13 , "priority" => 255 ),
+	array( 'db' => 'VTELAPSE_SEC',    'dt' => 14 , "priority" => 255 ),
+	array( 'db' => 'VTSCRIPT',        'dt' => 15 , "priority" => 6   ),
+	array( 'db' => 'VTDATENAME',      'dt' => 16 , "priority" => 255 ),
+	array( 'db' => 'VTEXETYPECODE',   'dt' => 17 , "priority" => 7  , 'formatter' => 'function($v){$modeexec = ["", "EXEC", "SIMU", "TEST", "STOP" ]; return $modeexec[$v] ;}' )
+);
 
-		return $conn;
-	}
+?>
+<!DOCTYPE html>
+<html lang="fr">
 
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>TOP100 STATS</title>
+  <link rel="stylesheet" type="text/css" href="/api/vendor/datatables.min.css"/>
+  <link rel="stylesheet" type="text/css" href="index.css"/>
+</head>
 
-	/**
-	 * Paging
-	 *
-	 * Construct the LIMIT clause for server-side processing SQL query
-	 *
-	 *  @param  array $request Data sent to server by DataTables
-	 *  @param  array $columns Column information array
-	 *  @return string SQL limit clause
-	 */
-	static function limit ( $request, $sql )
-	{
-		if ( isset($request['start']) && $request['length'] != -1 ) {
-			// "WHERE r between ".intval($request['start'])." and ".(intval($request['start']) + intval($request['length']));
-			$sql =  "SELECT * FROM ( SELECT a.*, ROWNUM rnum FROM ( ".
-							$sql.
-							" ) a WHERE ROWNUM <= ".(intval($request['start']) + intval($request['length']))." ) WHERE rnum >= ".intval($request['start'])
-							;
-		}
+<body>
+    <table id="example" class="display" style="width:100%">
+        <thead>
+            <tr>
+            <?php 
+            foreach($columns as $k => $column){
+              echo "<th data-priority='".$column['priority']."'>".$column['db']."</th>" ;
+            }
+            ?>
+            </tr>
+        </thead>
+        <tfoot>
+            <tr>
+            <?php 
+            foreach($columns as $k => $column){
+              echo "<th>".$column['db']."</th>" ;
+            }
+            ?>
+            </tr>
+        </tfoot>
+    </table>
+<script src="/api/vendor/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script src="/api/vendor/datatables.min.js" type="text/javascript"></script>
+<script>
+window.myColumns = <?php echo json_encode($columns); ?> ;
+window.myTable = <?php echo json_encode($table); ?> ;
+window.myPrimaryKey = <?php echo json_encode($primaryKey); ?> ;
+</script>
+<script src="index.js" type="text/javascript"></script>
+</body>
 
-		return $sql;
-	}
+</html>
+```
 
+`index.js`
+```js
+$(document).ready(function () {
 
-	/**
-	 * Ordering
-	 *
-	 * Construct the ORDER BY clause for server-side processing SQL query
-	 *
-	 *  @param  array $request Data sent to server by DataTables
-	 *  @param  array $columns Column information array
-	 *  @return string SQL order by clause
-	 */
-	static function order ( $request, $columns )
-	{
-		$order = '';
+  function throttle(callback, delay) {
+    var last;
+    var timer;
+    return function () {
+      var context = this;
+      var now = +new Date();
+      var args = arguments;
+      if (last && now < last + delay) {
+        // le délai n'est pas écoulé on reset le timer
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          last = now;
+          callback.apply(context, args);
+        }, delay);
+      } else {
+        last = now;
+        callback.apply(context, args);
+      }
+    };
+  }
 
-		if ( isset($request['order']) && count($request['order']) ) {
-			$orderBy = array();
-			$dtColumns = self::pluck( $columns, 'dt' );
+  var table = $('#example').DataTable({
+    "dom": 'Bfrtip',
+    "language": { "url": "/api/vendor/DataTables-1.10.18/lang/French.json" },
+    "processing": true,
+    "serverSide": true,
+    "ajax": {
+      "url": "/api/dtServerSideProcessing.php",
+      "data": function (d) {
+        let objTable = {}
+        objTable["base"] = "POUTI";
+        if (window.myColumns) {
+          objTable["myColumns"] = window.myColumns
+        }
+        if (window.myTable) {
+          objTable["myTable"] = window.myTable
+        }
+        if (window.myPrimaryKey) {
+          objTable["myPrimaryKey"] = window.myPrimaryKey
+        }
+        return $.extend({}, d, objTable)
+      }
+    },
+    "order": [
+      [4, "desc"]
+      /*
+      [0,"asc"]
+      ,[1,"asc"]
+      ,[2,"asc"]
+      ,[4,"desc"]
+      ,[5,"desc"]
+      ,[8,"asc"]
+      */
+    ],
+    "ordering": true,
+    "buttons": [
+      'copy',
+      'excel',
+      'pageLength'
+    ],
+    'responsive': true,
+    "initComplete": function () {
+      var api = this.api();
 
-			for ( $i=0, $ien=count($request['order']) ; $i<$ien ; $i++ ) {
-				// Convert the column index into the column data property
-				$columnIdx = intval($request['order'][$i]['column']);
-				$requestColumn = $request['columns'][$columnIdx];
+      // Apply the search
+      api.columns().every(function () {
+        var that = this;
 
-				$columnIdx = array_search( $requestColumn['data'], $dtColumns );
-				$column = $columns[ $columnIdx ];
-
-				if ( $requestColumn['orderable'] == 'true' ) {
-					$dir = $request['order'][$i]['dir'] === 'asc' ?
-						'ASC' :
-						'DESC';
-
-					$orderBy[] = ''.$column['db'].' '.$dir;
-				}
-			}
-
-			if ( count( $orderBy ) ) {
-				$order = " ORDER BY " . implode(', ', $orderBy);
-			}
-		}
-
-		return $order;
-	}
-
-
-	/**
-	 * Searching / Filtering
-	 *
-	 * Construct the WHERE clause for server-side processing SQL query.
-	 *
-	 * NOTE this does not match the built-in DataTables filtering which does it
-	 * word by word on any field. It's possible to do here performance on large
-	 * databases would be very poor
-	 *
-	 *  @param  array $request Data sent to server by DataTables
-	 *  @param  array $columns Column information array
-	 *  @param  array $bindings Array of values for PDO bindings, used in the
-	 *    sql_exec() function
-	 *  @return string SQL where clause
-	 */
-	static function filter ( $request, $columns, &$bindings )
-	{
-		$globalSearch = array();
-		$columnSearch = array();
-		$dtColumns = self::pluck( $columns, 'dt' );
-
-		if ( isset($request['search']) && $request['search']['value'] != '' ) {
-			$str = $request['search']['value'];
-
-			for ( $i=0, $ien=count($request['columns']) ; $i<$ien ; $i++ ) {
-				$requestColumn = $request['columns'][$i];
-				$columnIdx = array_search( $requestColumn['data'], $dtColumns );
-				$column = $columns[ $columnIdx ];
-
-				if ( $requestColumn['searchable'] == 'true' ) {
-					$binding = self::bind( $bindings, '%'.$str.'%', PDO::PARAM_STR );
-					$globalSearch[] = "".$column['db']." LIKE ".$binding;
-				}
-			}
-		}
-
-		// Individual column filtering
-		if ( isset( $request['columns'] ) ) {
-			for ( $i=0, $ien=count($request['columns']) ; $i<$ien ; $i++ ) {
-				$requestColumn = $request['columns'][$i];
-				$columnIdx = array_search( $requestColumn['data'], $dtColumns );
-				$column = $columns[ $columnIdx ];
-
-				$str = $requestColumn['search']['value'];
-
-				if ( $requestColumn['searchable'] == 'true' &&
-				 $str != '' ) {
-					$binding = self::bind( $bindings, '%'.$str.'%', PDO::PARAM_STR );
-					$columnSearch[] = "".$column['db']." LIKE ".$binding;
-				}
-			}
-		}
-
-		// Combine the filters into a single string
-		$where = '';
-
-		if ( count( $globalSearch ) ) {
-			$where = '('.implode(' OR ', $globalSearch).')';
-		}
-
-		if ( count( $columnSearch ) ) {
-			$where = $where === '' ?
-				implode(' AND ', $columnSearch) :
-				$where .' AND '. implode(' AND ', $columnSearch);
-		}
-
-		if ( $where !== '' ) {
-			$where = 'WHERE '.$where;
-		}
-
-		return $where;
-	}
+        $('input', this.footer()).on('keyup change', throttle(function () {
+          if (that.search() !== this.value) {
+            that
+              .search(this.value)
+              .draw();
+          }
+        }, 3000));
+      });
+    },
+    "colReorder": true,
+    "lengthMenu": [[10, 25, 50, -1], [10, 25, 50, "All"]]
+  });
 
 
-	/**
-	 * Perform the SQL queries needed for an server-side processing requested,
-	 * utilising the helper functions of this class, limit(), order() and
-	 * filter() among others. The returned array is ready to be encoded as JSON
-	 * in response to an SSP request, or can be modified if needed before
-	 * sending back to the client.
-	 *
-	 *  @param  array $request Data sent to server by DataTables
-	 *  @param  array|PDO $conn PDO connection resource or connection parameters array
-	 *  @param  string $table SQL table to query
-	 *  @param  string $primaryKey Primary key of the table
-	 *  @param  array $columns Column information array
-	 *  @return array          Server-side processing response array
-	 */
-	static function simple ( $request, $conn, $table, $primaryKey, $columns )
-	{
-		$bindings = array();
-		$db = self::db( $conn );
+  // Setup - add a text input to each footer cell
+  $('#example tfoot th').each(function () {
+    var title = $(this).text();
+    $(this).html('<input type="text" placeholder="Search ' + title + '" />');
+  });
 
-		// Build the SQL query string from the request
-		$order = self::order( $request, $columns );
-		$where = self::filter( $request, $columns, $bindings );
-		
-		/*
-		$sql = "SELECT * FROM (SELECT ".
-		implode(", ", self::pluck($columns, 'db')).
-		", row_number() over (ORDER BY ".$order.") r ".
-		"FROM $table t ". 
-		$where.
-		") " .
-		$limit
-		;
-		SELECT * FROM 
- 		(
-			SELECT a.*, ROWNUM rnum FROM 
- 			(
-				SELECT * FROM top100_stats_trt WHERE vtenvname = 'EDI' and vtbegin > TO_DATE('01/07/2019', 'DD/MM/YY') and vtbegin < TO_DATE('10/07/2019', 'DD/MM/YY')  ORDER BY vtbegin DESC
-			) a
-			WHERE ROWNUM <= 10
-		)
-		WHERE rnum >= 0;
-		*/
-		
-		$sql = "SELECT ".
-		implode(", ", self::pluck($columns, 'db')).
-		" FROM $table t ". $where . $order
-		;
-		$sql = self::limit( $request, $sql );
-		// Main query to actually get the data
-		$data = self::sql_exec( $db, $bindings, $sql);
-		
+}); // end ready
+```
 
-		// Data set length after filtering
-		$resFilterLength = self::sql_exec( $db, $bindings,
-			"SELECT COUNT(1)
-			 FROM   $table
-			 $where"
-		);
-		$recordsFiltered = $resFilterLength[0][0];
+`dtServerSideProcessing.php`
+```php
+<?php
+ini_set('max_execution_time', 300);
+error_reporting(E_ALL);
+ini_set("display_errors", 1);
+ini_set('memory_limit', '512M');
 
-		// Total data set length
-		$resTotalLength = self::sql_exec( $db,
-			"SELECT COUNT(1)
-			 FROM   $table"
-		);
-		$recordsTotal = $resTotalLength[0][0];
+# return content as json
+header('Content-Type: application/json');
 
-		/*
-		 * Output
-		 */
-		return array(
-			"draw"            => isset ( $request['draw'] ) ?
-				intval( $request['draw'] ) :
-				0,
-			"recordsTotal"    => intval( $recordsTotal ),
-			"recordsFiltered" => intval( $recordsFiltered ),
-			"sql" => $sql,
-			"data"            => self::data_output( $columns, $data )
-		);
-	}
+require( '../oracle.ssp.class.php' );
 
 
-
-	/**
-	 * Connect to the database
-	 *
-	 * @param  array $sql_details SQL server connection details array, with the
-	 *   properties:
-	 *     * host - host name
-	 *     * db   - database name
-	 *     * user - user name
-	 *     * pass - user password
-	 * @return resource Database connection handle
-	 */
-	static function sql_connect ( $sql_details )
-	{
-		try {
-			$db = @new PDO(
-				"oci:dbname=".$sql_details['dbInstance'],
-				$sql_details['user'],
-				$sql_details['pass'],
-				array( PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION )
-			);
-			$db->query("ALTER SESSION SET NLS_DATE_FORMAT = 'DD-MM-YYYY HH24:MI:SS'");
-			$db->query("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'DD-MM-YYYY HH24:MI:SS'");
-		}
-		catch (PDOException $e) {
-			self::fatal(
-				"An error occurred while connecting to the database. ".
-				"The error reported by the server was: ".$e->getMessage()
-			);
-		}
-
-		return $db;
-	}
-
-
-	/**
-	 * Execute an SQL query on the database
-	 *
-	 * @param  resource $db  Database handler
-	 * @param  array    $bindings Array of PDO binding values from bind() to be
-	 *   used for safely escaping strings. Note that this can be given as the
-	 *   SQL query string if no bindings are required.
-	 * @param  string   $sql SQL query to execute.
-	 * @return array         Result from the query (all rows)
-	 */
-	static function sql_exec ( $db, $bindings, $sql=null )
-	{
-		// Argument shifting
-		if ( $sql === null ) {
-			$sql = $bindings;
-		}
-
-		$stmt = $db->prepare( $sql );
-//		print_r( $stmt);
-
-		// Bind parameters
-		if ( is_array( $bindings ) ) {
-			for ( $i=0, $ien=count($bindings) ; $i<$ien ; $i++ ) {
-				$binding = $bindings[$i];
-				$stmt->bindValue( $binding['key'], $binding['val'], $binding['type'] );
-			}
-		}
-
-		// Execute
-		try {
-			$stmt->execute();
-		}
-		catch (PDOException $e) {
-			self::fatal( "An SQL error occurred: ".$e->getMessage() );
-		}
-
-		// Return all
-		return $stmt->fetchAll( PDO::FETCH_BOTH );
-	}
-
-
-	/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-	 * Internal methods
-	 */
-
-	/**
-	 * Throw a fatal error.
-	 *
-	 * This writes out an error message in a JSON string which DataTables will
-	 * see and show to the user in the browser.
-	 *
-	 * @param  string $msg Message to send to the client
-	 */
-	static function fatal ( $msg )
-	{
-		echo json_encode( array( 
-			"error" => $msg
-		) );
-
-		exit(0);
-	}
-
-	/**
-	 * Create a PDO binding key which can be used for escaping variables safely
-	 * when executing a query with sql_exec()
-	 *
-	 * @param  array &$a    Array of bindings
-	 * @param  *      $val  Value to bind
-	 * @param  int    $type PDO field type
-	 * @return string       Bound key to be used in the SQL where this parameter
-	 *   would be used.
-	 */
-	static function bind ( &$a, $val, $type )
-	{
-		$key = ':binding_'.count( $a );
-
-		$a[] = array(
-			'key' => $key,
-			'val' => $val,
-			'type' => $type
-		);
-
-		return $key;
-	}
-
-
-	/**
-	 * Pull a particular property from each assoc. array in a numeric array, 
-	 * returning and array of the property values from each item.
-	 *
-	 *  @param  array  $a    Array to get data from
-	 *  @param  string $prop Property to read
-	 *  @return array        Array of property values
-	 */
-	static function pluck ( $a, $prop )
-	{
-		$out = array();
-
-		for ( $i=0, $len=count($a) ; $i<$len ; $i++ ) {
-			$out[] = $a[$i][$prop];
-		}
-
-		return $out;
-	}
-
-
-	/**
-	 * Return a string from an array or a string
-	 *
-	 * @param  array|string $a Array to join
-	 * @param  string $join Glue for the concatenation
-	 * @return string Joined string
-	 */
-	static function _flatten ( $a, $join = ' AND ' )
-	{
-		if ( ! $a ) {
-			return '';
-		}
-		else if ( $a && is_array($a) ) {
-			return implode( $join, $a );
-		}
-		return $a;
-	}
+$base = "maBase";
+if(isset($_REQUEST["base"]) && $_REQUEST["base"] != ""){
+	$base = $_REQUEST["base"];
 }
+
+$fic_par = '../cnx_ora.ini';
+if(!file_exists($fic_par)) {
+		echo("Le fichier ". $fic_par ." est introuvable");
+		die();
+}
+//Recuperation User/Mot de passe/Instance
+$ini = parse_ini_file($fic_par,TRUE);
+$sql_details = array(
+	'user' => $ini[$base]['User'],
+	'pass' => $ini[$base]['Mdp'],
+	'dbInstance'   => $ini[$base]['Instance']
+);
+
+if(isset($_REQUEST['myTable'])){
+	$table = $_REQUEST['myTable'] ;
+}
+if(isset($_REQUEST['myPrimaryKey'])){
+	$primaryKey = $_REQUEST['myPrimaryKey'] ;
+}
+if(isset($_REQUEST['myColumns'])){
+	$columns = $_REQUEST['myColumns'] ;
+}
+
+echo json_encode(
+	SSP::simple( $_GET, $sql_details, $table, $primaryKey, $columns )
+);
+```
