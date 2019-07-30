@@ -31,13 +31,13 @@ class SSP {
 			for ( $j=0, $jen=count($columns) ; $j<$jen ; $j++ ) {
 				$column = $columns[$j];
 
-				// Is there a formatter?
+				$formatter = function($v){return $v ;} ;
+				// Is there a formatter? ex 'formatter' => 'function($v){$status[3] = "OK" ; $status[4] = "ERR" ; return $status[$v];}'
 				if ( isset( $column['formatter'] ) ) {
-					$row[ $column['dt'] ] = $column['formatter']( $data[$i][ $column['db'] ], $data[$i] );
+					eval("\$formatter = ". $column['formatter'] . ";") ;
+					
 				}
-				else {
-					$row[ $column['dt'] ] = $data[$i][ $columns[$j]['db'] ];
-				}
+				$row[ $column['dt'] ] = $formatter( $data[$i][ $column['db'] ]);
 			}
 
 			$out[] = $row;
