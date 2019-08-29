@@ -109,22 +109,24 @@ class SSP {
 		if ( isset($request['order']) && count($request['order']) ) {
 			$orderBy = array();
 			$dtColumns = self::pluck( $columns, 'dt' );
+			$dataColumns = self::pluck( $request["columns"], 'data' );
 
 			for ( $i=0, $ien=count($request['order']) ; $i<$ien ; $i++ ) {
 				// Convert the column index into the column data property
-				$columnIdx = intval($request['order'][$i]['column']);
+				$columnIdx = array_search( intval($request['order'][$i]['column']), $dataColumns );
 				$requestColumn = $request['columns'][$columnIdx];
 
-				$columnIdx = array_search( $requestColumn['data'], $dtColumns );
-				$column = $columns[ $columnIdx ];
-
-				if ( $requestColumn['orderable'] == 'true' ) {
-					$dir = $request['order'][$i]['dir'] === 'asc' ?
-						'ASC' :
-						'DESC';
-
-					$orderBy[] = ''.$column['db'].' '.$dir;
+				if ( $requestColumn['orderable'] != 'true' ) {
+					continue;
 				}
+
+				$column = $columns[ $request['order'][$i]['column'] ];
+				
+				$dir = $request['order'][$i]['dir'] === 'asc' ?
+					'ASC' :
+					'DESC';
+
+				$orderBy[] = ''.$column['db'].' '.$dir;
 			}
 
 			if ( count( $orderBy ) ) {
@@ -176,15 +178,30 @@ class SSP {
 		if ( isset( $request['columns'] ) ) {
 			for ( $i=0, $ien=count($request['columns']) ; $i<$ien ; $i++ ) {
 				$requestColumn = $request['columns'][$i];
+
+				if($requestColumn['searchable'] != 'true'){
+					continue;
+				}
+
 				$columnIdx = array_search( $requestColumn['data'], $dtColumns );
 				$column = $columns[ $columnIdx ];
 
 				$str = $requestColumn['search']['value'];
 
-				if ( $requestColumn['searchable'] == 'true' &&
-				 $str != '' ) {
-					$binding = self::bind( $bindings, '%'.$str.'%', PDO::PARAM_STR );
-					$columnSearch[] = "".$column['db']." LIKE ".$binding;
+				if ( $str != '' ) {
+					if(isset($requestColumn['search']['operator']) && (
+						$requestColumn['search']['operator'] == "=" ||
+						$requestColumn['search']['operator'] == ">" ||
+						$requestColumn['search']['operator'] == ">=" ||
+						$requestColumn['search']['operator'] == "<=" ||
+						$requestColumn['search']['operator'] == "<>"
+					)){
+						$binding = self::bind( $bindings, $str, PDO::PARAM_STR );
+						$columnSearch[] = $column['db']." ".$requestColumn['search']['operator']." ".$binding;
+					}else{
+						$binding = self::bind( $bindings, '%'.$str.'%', PDO::PARAM_STR );
+						$columnSearch[] = $column['db']." LIKE ".$binding;
+					}
 				}
 			}
 		}
@@ -233,31 +250,12 @@ class SSP {
 		$order = self::order( $request, $columns );
 		$where = self::filter( $request, $columns, $bindings );
 		
-		/*
-		$sql = "SELECT * FROM (SELECT ".
-		implode(", ", self::pluck($columns, 'db')).
-		", row_number() over (ORDER BY ".$order.") r ".
-		"FROM $table t ". 
-		$where.
-		") " .
-		$limit
-		;
-		SELECT * FROM 
- 		(
-			SELECT a.*, ROWNUM rnum FROM 
- 			(
-				SELECT * FROM top100_stats_trt WHERE vtenvname = 'EDI' and vtbegin > TO_DATE('01/07/2019', 'DD/MM/YY') and vtbegin < TO_DATE('10/07/2019', 'DD/MM/YY')  ORDER BY vtbegin DESC
-			) a
-			WHERE ROWNUM <= 10
-		)
-		WHERE rnum >= 0;
-		*/
-		
 		$sql = "SELECT ".
 		implode(", ", self::pluck($columns, 'db')).
 		" FROM $table t ". $where . $order
 		;
 		$sql = self::limit( $request, $sql );
+		//print_r($sql);die();//debug
 		// Main query to actually get the data
 		$data = self::sql_exec( $db, $bindings, $sql);
 		
@@ -286,7 +284,7 @@ class SSP {
 				0,
 			"recordsTotal"    => intval( $recordsTotal ),
 			"recordsFiltered" => intval( $recordsFiltered ),
-			"sql" => $sql,
+			"sql" => $sql,//for debug
 			"data"            => self::data_output( $columns, $data )
 		);
 	}
